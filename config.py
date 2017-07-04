@@ -5,9 +5,10 @@ DATA_PATH = '/mnt/data/kirtib/twitter/data/twitter/dataset1'
 TRAIN_DATA = 'user_tweets_training_set.txt'
 TEST_DATA = 'user_tweets_test_set.txt'
 OUTPUT_FILE = 'output_convo.txt'
-PROCESSED_PATH = '/mnt/data/kirtib/twitter/seq_model/processed'
-CPT_PATH = 'checkpoints_old'
-
+PROCESSED_PATH = '/mnt/data/kirtib/twitter/seq_model/tweet_seq2seq/processed'
+#PROCESSED_PATH = '/Users/kirti/Documents/Projects/tweet_seq2seq/processed'
+CPT_PATH = 'checkpoints'
+EVAL_PATH = 'checkpoints_eval'
 THRESHOLD = 2
 
 PAD_ID = 0
@@ -30,10 +31,10 @@ TEST_SIZE = DATA_SIZE/100
 
 # model parameters
 """ Train encoder length distribution:
-[175, 92, 11883, 8387, 10656, 13613, 13480, 12850, 11802, 10165, 
-8973, 7731, 7005, 6073, 5521, 5020, 4530, 4421, 3746, 3474, 3192, 
-2724, 2587, 2413, 2252, 2015, 1816, 1728, 1555, 1392, 1327, 1248, 
-1128, 1084, 1010, 884, 843, 755, 705, 660, 649, 594, 558, 517, 475, 
+[175, 92, 11883, 8387, 10656, 13613, 13480, 12850, 11802, 10165,
+8973, 7731, 7005, 6073, 5521, 5020, 4530, 4421, 3746, 3474, 3192,
+2724, 2587, 2413, 2252, 2015, 1816, 1728, 1555, 1392, 1327, 1248,
+1128, 1084, 1010, 884, 843, 755, 705, 660, 649, 594, 558, 517, 475,
 426, 444, 388, 349, 337]
 These buckets size seem to work the best
 """
@@ -48,18 +49,19 @@ BUCKETS = [(50, 50)]
 NUM_LAYERS = 2
 HIDDEN_SIZE = 128
 BATCH_SIZE = 64
+EPOCHS = 10
 
-LR = 0.008
+LR = 0.08
 MAX_GRAD_NORM = 5.0
 
 NUM_SAMPLES = 512
-DECAY_FACTOR = 0.96
+DECAY_FACTOR = 0.99
 VOCAB_SIZE = 100008
 ENC_VOCAB = 100008
 DEC_VOCAB = 100008
-#ENC_VOCAB = 30000
-#DEC_VOCAB = 30000
-#VOCAB_SIZE = 30000
+#ENC_VOCAB = 50000
+#DEC_VOCAB = 50000
+#VOCAB_SIZE = 50000
 BEAM_SEARCH = False
 BEAM_SIZE = 20
 GREEDY = True
