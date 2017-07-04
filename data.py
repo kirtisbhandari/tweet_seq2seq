@@ -182,9 +182,10 @@ def load_data(enc_filename, dec_filename, max_size=100000):
         decode_ids = [int(id_) if int(id_) < config.VOCAB_SIZE else config.UNK_ID for id_ in decode.split()]
 
         for bucket_id, (encode_max_size, decode_max_size) in enumerate(config.BUCKETS):
-            if len(encode_ids) <= encode_max_size and len(decode_ids) <= decode_max_size:
-                encode_ids = _pad_input(encode_ids, encode_max_size)
-                decode_ids = _pad_input(decode_ids, decode_max_size)
+            if len(encode_ids) <= encode_max_size and len(decode_ids) <= decode_max_size -1 :
+                encode_ids = list(reversed(_pad_input(encode_ids, encode_max_size)))
+                decode_ids = [config.GO_ID] + _pad_input(decode_ids, decode_max_size)
+                print(encode_ids, decode_ids)
                 data_buckets[bucket_id].append([encode_ids, decode_ids])
                 break
             else:
@@ -249,7 +250,7 @@ def _reshape_batch(inputs, size, batch_size):
                                     for batch_id in xrange(batch_size)], dtype=np.int32))
     return batch_inputs
 
-
+"""
 def get_batch(data_bucket, bucket_id, batch_size=1):
     # Return one batch to feed into the model
     # only pad to the max length of the bucket
@@ -260,9 +261,9 @@ def get_batch(data_bucket, bucket_id, batch_size=1):
         #encoder_input, decoder_input = random.choice(data_bucket)
         encoder_input, decoder_input = data_bucket[i]
         # pad both encoder and decoder, reverse the encoder
-        #encoder_inputs.append(list(reversed(_pad_input(encoder_input, encoder_size))))
-        decoder_inputs.append(_pad_input(decoder_input, decoder_size))
-        encoder_inputs.append(_pad_input(encoder_input, encoder_size))
+        encoder_inputs.append(list(reversed(_pad_input(encoder_input, encoder_size))))
+        #decoder_inputs.append(_pad_input(decoder_input, decoder_size))
+        encoder_inputs.append([config.GO_ID] + _pad_input(encoder_input, encoder_size))
 
     # now we create batch-major vectors from the data selected above.
     batch_encoder_inputs = _reshape_batch(encoder_inputs, encoder_size, batch_size)
@@ -285,7 +286,7 @@ def get_batch(data_bucket, bucket_id, batch_size=1):
     #print("batch masks")
     #print(batch_masks)
     return batch_encoder_inputs, batch_decoder_inputs, batch_masks
-
+"""
 
 def get_batch_masks(batch_data, batch_size=1):
     bucket_id = 0
@@ -321,14 +322,15 @@ if __name__ == '__main__':
     #prepare_raw_data(config.TRAIN_DATA)
     #prepare_raw_data(config.TEST_DATA, True)
    # process_data()
-    test_buckets = load_data("train_ids.enc", "train_ids.dec", 2)
-    batches, _ = divide_batches(test_buckets[0], 1)
+    test_buckets = load_data("train_ids.enc", "train_ids.dec", 128)
+    batches, _ = divide_batches(test_buckets[0], 64)
     #_, _, old_masks = get_batch(test_buckets[0],0, 64)
-    #print("from main")
-    #print("num batches", len(batches))
-    #batch_0 = batches[0]
-    #new_masks = get_batch_masks(batch_0, 1)
-    #encoder_inputs = batch_0[:, 0, :]
-    #print(encoder_inputs)
-    #encoder_inputs_1 =_reshape_batch(encoder_inputs, config.BUCKETS[0][0], 1)
-    #print(len(encoder_inputs_1))
+    print("from main")
+    print("num batches", len(batches))
+    batch_0 = batches[0]
+    print(batch_0)
+    new_masks = get_batch_masks(batch_0, 64)
+    encoder_inputs = batch_0[:, 0, :]
+    print(encoder_inputs)
+    encoder_inputs_1 =_reshape_batch(encoder_inputs, config.BUCKETS[0][0], 64)
+    print(len(encoder_inputs_1))
