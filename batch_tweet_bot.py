@@ -14,14 +14,15 @@ from model import ChatBotModel
 import config
 import data
 import gc
-
-
+#from tensorflow.python.training import checkpoint_utils
+#Not needed if I am using single bucket
 def _get_random_bucket(train_buckets_scale):
     """ Get a random bucket from which to choose a training sample """
     rand = random.random()
     return min([i for i in xrange(len(train_buckets_scale))
                 if train_buckets_scale[i] > rand])
 
+#check if all lengths aer correct
 def _assert_lengths(encoder_size, decoder_size, encoder_inputs, decoder_inputs, decoder_masks):
     """ Assert that the encoder inputs, decoder inputs, and decoder masks are
     of the expected lengths """
@@ -34,6 +35,7 @@ def _assert_lengths(encoder_size, decoder_size, encoder_inputs, decoder_inputs, 
     if len(decoder_masks) != decoder_size:
         raise ValueError("Weights length must be equal to the one in bucket,"
                        " %d != %d." % (len(decoder_masks), decoder_size))
+
 
 
 def run_step(sess, model, encoder_inputs, decoder_inputs, decoder_masks, bucket_id, forward_only):
@@ -72,6 +74,8 @@ def run_step(sess, model, encoder_inputs, decoder_inputs, decoder_masks, bucket_
         return None, outputs[0], outputs[1:]  # No gradient norm, loss, outputs.
     gc.collect()
 
+
+#Right now have only 1 bucket, so not needed really.
 def _get_buckets():
     """ Load the dataset into buckets based on their lengths.
     train_buckets_scale is the inverval that'll help us
@@ -87,7 +91,9 @@ def _get_buckets():
                            for i in xrange(len(train_bucket_sizes))]
     print("Bucket scale:\n", train_buckets_scale)
     return test_buckets, data_buckets, train_buckets_scale
+
 """
+generator for data -  didn't help with optimization
 def _get_buckets_gen(test_buckets, data_buckets, batch_size):
     test_buckets_gen = data.get_buckets_gen(test_buckets, batch_size)
     data_buckets_gen = data.get_buckets_gen(data_buckets, batch_size)
@@ -98,33 +104,38 @@ def _get_skip_step(iteration):
     """ How many steps should the model train before it saves all the weights. """
     if iteration < 100:
         return 30
-    return 200
+    return 100
 
 def _check_restore_parameters(sess, saver):
     """ Restore the previously trained parameters if there are any. """
     ckpt = tf.train.get_checkpoint_state(os.path.dirname(config.CPT_PATH + '/checkpoint'))
+    #print(checkpoint_utils.list_variables(os.path.dirname(config.CPT_PATH + '/checkpoint')))
     if ckpt and ckpt.model_checkpoint_path:
         print("Loading parameters for the Chatbot")
+        saver = tf.train.import_meta_graph(ckpt.model_checkpoint_path + ".meta")
         saver.restore(sess, ckpt.model_checkpoint_path)
     else:
         print("Initializing fresh parameters for the Chatbot")
+        #check if this helps with checkpointing
+        sess.run(tf.global_variables_initializer())
 
 def _eval_test_set(sess, model, test_batch, test_mask):
     """ Evaluate on the test set. """
     for bucket_id in xrange(len(config.BUCKETS)):
         #as of now only 1 bucket, hence passing the batch
         #later might have to fix to get a batch here
-
+        #test_batch is of form batch_size x 2 (encoder, decoder) X encoder_size/decoder_size
         encoder_inputs, decoder_inputs = test_batch[:, 0, :], test_batch[:, 1, :]
+
+        #reshape to make batch major
         encoder_inputs =data._reshape_batch(encoder_inputs, config.BUCKETS[bucket_id][0], config.BATCH_SIZE)
-        decoder_inputs =data._reshape_batch(decoder_inputs, config.BUCKETS[bucket_id][0], config.BATCH_SIZE)
+        decoder_inputs =data._reshape_batch(decoder_inputs, config.BUCKETS[bucket_id][1], config.BATCH_SIZE)
         #print(len(encoder_inputs), len(decoder_inputs))
         #encoder_inputs, decoder_inputs, decoder_masks = data.get_batch(test_batch,
         #                                                                bucket_id,
         #                                                                batch_size=config.BATCH_SIZE)
 
         decoder_masks = test_mask
-        #decoder_masks =data._reshape_batch(test_mask, config.BUCKETS[bucket_id][0], config.BATCH_SIZE)
 
         if len(encoder_inputs) == 0:
             print("  Test: empty bucket %d" % (bucket_id))
@@ -136,14 +147,7 @@ def _eval_test_set(sess, model, test_batch, test_mask):
         _, step_loss, output_logits = run_step(sess, model, encoder_inputs, decoder_inputs,
                                    decoder_masks, bucket_id, True)
         print('Test bucket {}: loss {}, time {}'.format(bucket_id, step_loss, time.time() - start))
-        #output_0 = [output_logit[0] for output_logit in output_logits ]
-        #print(len(output_logits[0]))
-        #print(len(output_0))
-        #print(len(output_0[0]))
-        #response = _construct_response(output_logits[0], inv_dec_vocab)
-        #response = _construct_response(output_0, inv_dec_vocab)
 
-        #print(response)
         return step_loss
 
 def train():
@@ -156,12 +160,14 @@ def train():
     #data_gen = data.get_batch_gen(data_buckets[0], 0, config.BATCH_SIZE)
     #test_gen = data.get_batch_gen(test_buckets[0], 0, config.BATCH_SIZE)
 
+    #divide data into batches
     divided_test, num_test_batches = data.divide_batches(test_buckets[0],  config.BATCH_SIZE)
     del test_buckets
     divided_data, num_data_batches = data.divide_batches(data_buckets[0],  config.BATCH_SIZE)
     del data_buckets
     print("train test batches ", num_data_batches, num_test_batches)
 
+    #get masks for all batches
     data_masks =  data.get_masks(divided_data, config.BATCH_SIZE)
     test_masks = data.get_masks(divided_test, config.BATCH_SIZE)
 
@@ -171,11 +177,11 @@ def train():
 
     with fix_gpu_memory() as sess:
 
+        _check_restore_parameters(sess, saver)
         print('Running session')
 
         for i in range(0,config.EPOCHS):
-            sess.run(tf.global_variables_initializer())
-            _check_restore_parameters(sess, saver)
+            #sess.run(tf.global_variables_initializer())
             iteration = model.global_step.eval()
             total_loss = 0
             previous_losses = []
@@ -191,6 +197,7 @@ def train():
                 data_batch = divided_data[batch_data_counter]
                 encoder_inputs, decoder_inputs = data_batch[:, 0, :], data_batch[:, 1, :]
 
+                #Make batch major
                 encoder_inputs =data._reshape_batch(encoder_inputs, config.BUCKETS[bucket_id][0], config.BATCH_SIZE)
                 decoder_inputs =data._reshape_batch(decoder_inputs, config.BUCKETS[bucket_id][1], config.BATCH_SIZE)
 
@@ -199,8 +206,8 @@ def train():
 
                 batch_data_counter = batch_data_counter +1
                 time_taken = time.time()-start
-                if time_taken >0.008:
-                    print("time taken to get train data: ", time_taken)
+                # if time_taken >0.008:
+                #     print("time taken to get train data: ", time_taken)
 
                 start = time.time()
                 _, step_loss, _ = run_step(sess, model, encoder_inputs, decoder_inputs, decoder_masks, bucket_id, False)
@@ -210,8 +217,8 @@ def train():
                 if iteration % skip_step == 0:
                     loss = total_loss/skip_step
                     print('Epoch {} Iter {}: lr {}, loss {}, time {}'.format(i, iteration, model.learning_rate.eval(), loss, time.time() - start))
-                    #decay learning rate if loss has not decreased
 
+                    #decay learning rate if loss has not decreased
                     if len(previous_losses) > 4:
                         previous_losses = previous_losses[-5:]
                         if loss > max(previous_losses[-4:]):
@@ -220,19 +227,19 @@ def train():
 
                     start = time.time()
                     total_loss = 0
-                    #saver.save(sess, os.path.join(config.CPT_PATH, 'chatbot'), global_step=model.global_step)
+                    saver.save(sess, os.path.join(config.CPT_PATH, 'chatbot'),      global_step=model.global_step)
                     if iteration % (10 * skip_step) == 0:
-                    # Run evals on development set and print their loss
-                    #_eval_test_set(sess, model, test_buckets, inv_dec_vocab)
-                    #test_batch = test_gen.next()
+                        # Run evals on development set and print their loss
                         test_batch = divided_test[batch_test_counter]
                         decoder_masks = test_masks[batch_test_counter]
                         batch_test_counter = batch_test_counter +1
+                        #All reshaping being done insiide eval function
                         eval_loss = _eval_test_set(sess, model, test_batch, decoder_masks)
                         if len(eval_losses) > 2:
                             eval_losses = eval_losses[-2:]
                             if eval_loss < min(eval_losses[-2:]):
-                                saver.save(sess, os.path.join(config.CPT_PATH, 'chatbot'), global_step=model.global_step)
+                                print("Min loss at  {}", model.global_step.eval())
+                        saver.save(sess, os.path.join(config.CPT_PATH, 'chatbot'), global_step=model.global_step)
                         eval_losses.append(eval_loss)
                         start = time.time()
                     sys.stdout.flush()
@@ -275,27 +282,13 @@ def chat(input=None):
     model.build_graph()
 
     saver = tf.train.Saver()
-
     with fix_gpu_memory() as sess:
-        sess.run(tf.global_variables_initializer())
+        #sess.run(tf.global_variables_initializer())
         _check_restore_parameters(sess, saver)
         output_file = open(os.path.join(config.PROCESSED_PATH, config.OUTPUT_FILE), 'a+')
         # Decode from standard input.
         max_length = config.BUCKETS[-1][0]
         print('Welcome to TensorBro. Say something. Enter to exit. Max length is', max_length)
-        if input is not None:
-            token_ids = data.sentence2id(enc_vocab, str(input))
-            bucket_id = _find_right_bucket(len(token_ids))
-            # Get a 1-element batch to feed the sentence to the model.
-            encoder_inputs, decoder_inputs, decoder_masks = data.get_batch([(token_ids, [])],
-                                                                            bucket_id,
-                                                                            batch_size=1)
-            # Get output logits for the sentence.
-            _, _, output_logits = run_step(sess, model, encoder_inputs, decoder_inputs,
-                                           decoder_masks, bucket_id, True)
-            response = _construct_response(output_logits, inv_dec_vocab)
-            print(response)
-            return
         while True:
             line = _get_user_input()
             if len(line) > 0 and line[-1] == '\n':
@@ -304,7 +297,8 @@ def chat(input=None):
                 break
             output_file.write('HUMAN ++++ ' + line + '\n')
             # Get token-ids for the input sentence.
-            line = config.START + " " + line + config.END
+
+            #TODO Print these tokens and verify
             token_ids = data.sentence2id(enc_vocab, str(line))
             if (len(token_ids) > max_length):
                 print('Max length I can handle is:', max_length)
@@ -315,8 +309,10 @@ def chat(input=None):
             # Get a 1-element batch to feed the sentence to the model.
             #PAD the input, output, construct decoder mask
             encoder_size, decoder_size = config.BUCKETS[bucket_id][0], config.BUCKETS[bucket_id][1]
+
+            #should encoder inputs be reversed? Yes. #TODO
             encoder_inputs = data._pad_input(token_ids, encoder_size)
-            decoder_inputs = data._pad_input([], decoder_size)
+            decoder_inputs = data._pad_input([config.START_ID], decoder_size)
 
             #print(encoder_inputs, decoder_inputs)
 
@@ -326,16 +322,19 @@ def chat(input=None):
             batch_data = [[]]
             batch_data[0].append(encoder_inputs)
             batch_data[0].append(decoder_inputs)
+            print(batch_data)
+            #This doesnt seem correct. batch_data[0]????
+            #how did it work?
             batch_decoder_masks = data.get_batch_masks(batch_data, batch_size=1)
             #batch_decoder_masks =data._reshape_batch(decoder_masks, config.BUCKETS[bucket_id][0], 1)
 
 
             #print("new")
             #print(len(encoder_inputs), len(decoder_inputs), len(decoder_masks))
-            #print(batch_encoder_inputs, batch_decoder_inputs, batch_decoder_masks)
+           # print(batch_encoder_inputs, batch_decoder_inputs, batch_decoder_masks)
             old_encoder_inputs, old_decoder_inputs, old_decoder_masks = data.get_batch([(token_ids, [])],
-                                                                            bucket_id,
-                                                                            batch_size=1)
+                                                                            bucket_id, batch_size=1)
+
             # Get output logits for the sentence.
             #print("old")
             #print(old_encoder_inputs, old_decoder_inputs, old_decoder_masks)
@@ -358,12 +357,9 @@ def fix_gpu_memory():
     tf_config.gpu_options.allow_growth = True
     tf_config.log_device_placement = False
     tf_config.allow_soft_placement = True
-        #init_op = tf.initialize_all_variables()
     init_op = tf.global_variables_initializer()
-        #sess = tf.Session()
     sess = tf.Session(config=tf_config)
     sess.run(init_op)
-        #K.set_session(sess)
     return sess
 
 
@@ -387,6 +383,9 @@ def main():
         train()
     elif args.mode == 'chat':
         chat()
+    elif args.mode == 'test':
+        test()
+
 
 if __name__ == '__main__':
     main()

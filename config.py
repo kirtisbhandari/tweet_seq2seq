@@ -5,7 +5,7 @@ DATA_PATH = '/mnt/data/kirtib/twitter/data/twitter/dataset1'
 TRAIN_DATA = 'user_tweets_training_set.txt'
 TEST_DATA = 'user_tweets_test_set.txt'
 OUTPUT_FILE = 'output_convo.txt'
-PROCESSED_PATH = '/mnt/data/kirtib/twitter/seq_model/tweet_seq2seq/processed'
+PROCESSED_PATH = '/mnt/data/kirtib/twitter/seq_model/processed'
 #PROCESSED_PATH = '/Users/kirti/Documents/Projects/tweet_seq2seq/processed'
 CPT_PATH = 'checkpoints'
 EVAL_PATH = 'checkpoints_eval'
@@ -17,7 +17,6 @@ START_ID = 2
 END_ID = 3
 URL_ID = 4
 USR_ID = 5
-GO_ID = 100008 
 
 
 PAD = '<pad>'
@@ -26,7 +25,7 @@ START = '<sot>'
 END = '<eot>'
 URL = '<url>'
 USR = '<usr>'
-DATA_SIZE = 3500000
+DATA_SIZE = 500000
 TEST_SIZE = DATA_SIZE/100
 
 # model parameters
@@ -46,19 +45,19 @@ BUCKETS = [(50, 50)]
 
 #BUCKETS = [(8, 10), (12, 14), (16, 19)]
 
-NUM_LAYERS = 2
-HIDDEN_SIZE = 128
+NUM_LAYERS = 3
+HIDDEN_SIZE = 1024
 BATCH_SIZE = 64
-EPOCHS = 10
+EPOCHS = 15
 
-LR = 0.08
+LR = 0.005
 MAX_GRAD_NORM = 5.0
 
 NUM_SAMPLES = 512
 DECAY_FACTOR = 0.99
-VOCAB_SIZE = 100009
-ENC_VOCAB = 100009
-DEC_VOCAB = 100009
+VOCAB_SIZE = 50006
+ENC_VOCAB = 50006
+DEC_VOCAB = 50006
 #ENC_VOCAB = 50000
 #DEC_VOCAB = 50000
 #VOCAB_SIZE = 50000

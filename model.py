@@ -1,7 +1,7 @@
 """ A neural chatbot using sequence to sequence model with
-attentional decoder. 
+attentional decoder.
 
-This is based on Google Translate Tensorflow model 
+This is based on Google Translate Tensorflow model
 https://github.com/tensorflow/models/blob/master/tutorials/rnn/translate/
 
 Sequence to sequence model by Cho et al.(2014)
@@ -30,52 +30,56 @@ class ChatBotModel(object):
         print('Initialize new model')
         self.fw_only = forward_only
         self.batch_size = batch_size
-    
+
     def _create_placeholders(self):
         # Feeds for inputs. It's a list of placeholders
         print('Create placeholders')
-        self.encoder_inputs = [tf.placeholder(tf.int32, shape=[None], name='encoder{}'.format(i))
-                               for i in xrange(config.BUCKETS[-1][0])]
-        self.decoder_inputs = [tf.placeholder(tf.int32, shape=[None], name='decoder{}'.format(i))
-                               for i in xrange(config.BUCKETS[-1][1] + 1)]
-        self.decoder_masks = [tf.placeholder(tf.float32, shape=[None], name='mask{}'.format(i))
-                              for i in xrange(config.BUCKETS[-1][1] + 1)]
+        with tf.device('/gpu:0'):
+            self.encoder_inputs = [tf.placeholder(tf.int32, shape=[None], name='encoder{}'.format(i))
+                                   for i in xrange(config.BUCKETS[-1][0])]
+        with tf.device('/gpu:0'):
+            self.decoder_inputs = [tf.placeholder(tf.int32, shape=[None], name='decoder{}'.format(i))
+                                   for i in xrange(config.BUCKETS[-1][1] + 1)]
+            self.decoder_masks = [tf.placeholder(tf.float32, shape=[None], name='mask{}'.format(i))
+                                  for i in xrange(config.BUCKETS[-1][1] + 1)]
 
         # Our targets are decoder inputs shifted by one (to ignore <s> symbol)
-        self.targets = self.decoder_inputs[1:]
+            self.targets = self.decoder_inputs[1:]
     def _inference(self):
         print('Create inference')
         # If we use sampled softmax, we need an output projection.
         # Sampled softmax only makes sense if we sample less than vocabulary size.
         if config.NUM_SAMPLES > 0 and config.NUM_SAMPLES < config.DEC_VOCAB:
-            w = tf.get_variable('proj_w', [config.HIDDEN_SIZE, config.DEC_VOCAB])
-            b = tf.get_variable('proj_b', [config.DEC_VOCAB])
-            self.output_projection = (w, b)
-            """ 
-            def sampled_loss(inputs, labels):
-                labels = tf.reshape(labels, [-1, 1])
-                return tf.nn.sampled_softmax_loss(tf.transpose(w), b, inputs, labels, 
-                                              config.NUM_SAMPLES, config.DEC_VOCAB)
-            """
-        def sampled_loss(labels, logits):
-            labels = tf.reshape(labels, [-1, 1])
-                # We need to compute the sampled_softmax_loss using 32bit floats to
-                # avoid numerical instabilities.
-            local_w_t = tf.cast(tf.transpose(w), tf.float32)
-            local_b = tf.cast(b, tf.float32)
-            local_inputs = tf.cast(logits, tf.float32)
-            return tf.cast(
-                    tf.nn.sampled_softmax_loss(
-                        weights=local_w_t,
-                        biases=local_b,
-                        labels=labels,
-                        inputs=local_inputs,
-                        num_sampled=config.NUM_SAMPLES,
-                        num_classes=config.DEC_VOCAB),
-                    tf.float32)
-        self.softmax_loss_function = sampled_loss
+            with tf.device('/gpu:0'):
+                w = tf.get_variable('proj_w', [config.HIDDEN_SIZE, config.DEC_VOCAB])
+                b = tf.get_variable('proj_b', [config.DEC_VOCAB])
+                self.output_projection = (w, b)
+                """
+                def sampled_loss(inputs, labels):
+                    labels = tf.reshape(labels, [-1, 1])
+                    return tf.nn.sampled_softmax_loss(tf.transpose(w), b, inputs, labels,
+                                                  config.NUM_SAMPLES, config.DEC_VOCAB)
+                """
+                def sampled_loss(labels, logits):
+                    labels = tf.reshape(labels, [-1, 1])
+                    # We need to compute the sampled_softmax_loss using 32bit floats to
+                    # avoid numerical instabilities.
+                    local_w_t = tf.cast(tf.transpose(w), tf.float32)
+                    local_b = tf.cast(b, tf.float32)
+                    local_inputs = tf.cast(logits, tf.float32)
+                    return tf.cast(
+                            tf.nn.sampled_softmax_loss(
+                               weights=local_w_t,
+                                biases=local_b,
+                                labels=labels,
+                                inputs=local_inputs,
+                                num_sampled=config.NUM_SAMPLES,
+                                num_classes=config.DEC_VOCAB),
+                                tf.float32)
+        with tf.device('gpu:0'):
+            self.softmax_loss_function = sampled_loss
 
-        single_cell = tf.contrib.rnn.BasicLSTMCell(config.HIDDEN_SIZE)
+        single_cell = tf.contrib.rnn.GRUCell(config.HIDDEN_SIZE)
         self.cell = tf.contrib.rnn.MultiRNNCell([single_cell] * config.NUM_LAYERS)
 
     def _create_loss(self):
@@ -92,23 +96,25 @@ class ChatBotModel(object):
 
         if self.fw_only:
             self.outputs, self.losses = tf.contrib.legacy_seq2seq.model_with_buckets(
-                                        self.encoder_inputs, 
-                                        self.decoder_inputs, 
+                                        self.encoder_inputs,
+                                        self.decoder_inputs,
                                         self.targets,
-                                        self.decoder_masks, 
-                                        config.BUCKETS, 
+                                        self.decoder_masks,
+                                        config.BUCKETS,
                                         lambda x, y: _seq2seq_f(x, y, True),
                                         softmax_loss_function=self.softmax_loss_function)
             # If we use output projection, we need to project outputs for decoding.
             if self.output_projection is not None:
-                for bucket in xrange(len(config.BUCKETS)):
-                    self.outputs[bucket] = [tf.matmul(output, 
-                                            self.output_projection[0]) + self.output_projection[1]
-                                            for output in self.outputs[bucket]]
+                with tf.device('/gpu:1'):
+                    for bucket in xrange(len(config.BUCKETS)):
+                        self.outputs[bucket] = [tf.matmul(output,
+                                                self.output_projection[0]) + self.output_projection[1]
+                                                for output in self.outputs[bucket]]
         else:
-            self.outputs, self.losses = tf.contrib.legacy_seq2seq.model_with_buckets(
-                                        self.encoder_inputs, 
-                                        self.decoder_inputs, 
+            with tf.device('/gpu:1'):
+                self.outputs, self.losses = tf.contrib.legacy_seq2seq.model_with_buckets(
+                                        self.encoder_inputs,
+                                        self.decoder_inputs,
                                         self.targets,
                                         self.decoder_masks,
                                         config.BUCKETS,
@@ -135,12 +141,12 @@ class ChatBotModel(object):
                 self.train_ops = []
                 start = time.time()
                 for bucket in xrange(len(config.BUCKETS)):
-                    
-                    clipped_grads, norm = tf.clip_by_global_norm(tf.gradients(self.losses[bucket], 
+
+                    clipped_grads, norm = tf.clip_by_global_norm(tf.gradients(self.losses[bucket],
                                                                  trainables),
                                                                  config.MAX_GRAD_NORM)
                     self.gradient_norms.append(norm)
-                    self.train_ops.append(self.optimizer.apply_gradients(zip(clipped_grads, trainables), 
+                    self.train_ops.append(self.optimizer.apply_gradients(zip(clipped_grads, trainables),
                                                             global_step=self.global_step))
                     print('Creating opt for bucket {} took {} seconds'.format(bucket, time.time() - start))
                     start = time.time()
